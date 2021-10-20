@@ -1,0 +1,90 @@
+report ZLIBERASE01
+       no standard page heading line-size 255.
+
+TABLES: TRDYSE01SN, E070.
+
+*&---------------------------------------------------------------------*
+*& Tabla interna para guardar los las órdenes de corrección asociadas a cada orden de transporte así como esta última.*
+*&---------------------------------------------------------------------*
+DATA: BEGIN OF I_ORDENES OCCURS 0,
+       ORDEN like TRDYSE01SN-TR_TRKORR,
+       TRANS like TRDYSE01SN-TR_TRKORR.
+DATA: END OF I_ORDENES.
+
+data: texto(120) type c.
+DATA orden like TMSBUFREQ-TRKORR.
+
+SELECT-OPTIONS
+    s_orden FOR TRDYSE01SN-TR_TRKORR no INTERVALS." OBLIGATORY.
+
+
+start-of-selection.
+
+  loop AT S_ORDEN.
+    condense s_orden-low.
+    orden = s_orden-low(10).
+    SELECT TRKORR FROM E070 APPENDING table I_ORDENES WHERE STRKORR = orden.
+    I_ORDENES-ORDEN = orden.
+    I_ORDENES-TRANS = orden.
+    append I_ORDENES.
+  ENDLOOP.
+
+
+  LOOP AT I_ORDENES.
+    CALL FUNCTION 'TR_RELEASE_REQUEST'
+      EXPORTING
+        IV_TRKORR                  = i_ordenes-orden
+        IV_DIALOG                  = 'X'
+        IV_AS_BACKGROUND_JOB       = ' '
+        IV_SUCCESS_MESSAGE         = 'X'
+        IV_DISPLAY_EXPORT_LOG      = ' '
+      EXCEPTIONS
+        CTS_INITIALIZATION_FAILURE = 1
+        ENQUEUE_FAILED             = 2
+        NO_AUTHORIZATION           = 3
+        INVALID_REQUEST            = 4
+        REQUEST_ALREADY_RELEASED   = 5
+        REPEAT_TOO_EARLY           = 6
+        ERROR_IN_EXPORT_METHODS    = 7
+        OBJECT_CHECK_ERROR         = 8
+        DOCU_MISSING               = 9
+        DB_ACCESS_ERROR            = 10
+        ACTION_ABORTED_BY_USER     = 11
+        EXPORT_FAILED              = 12
+        OTHERS                     = 13.
+    CASE SY-SUBRC.
+      WHEN 0.
+        IF I_ORDENES-TRANS <> ''.
+          CONCATENATE I_ORDENES-TRANS 'liberada' into texto SEPARATED BY space.
+          WRITE: /1 texto.
+        ENDIF.
+      WHEN 1.
+        WRITE: /1 'Error de inicialización del CTS al liberar la orden', I_ORDENES-ORDEN.
+      WHEN 2.
+        WRITE: /1 'Error de enqueue al liberar la orden', I_ORDENES-ORDEN.
+      WHEN 3.
+        WRITE: /1 'Sin autorización para liberar la orden', I_ORDENES-ORDEN.
+      WHEN 4.
+        CONCATENATE 'La orden' I_ORDENES-ORDEN 'no es válida o hay que liberar primero su orden de modificación.' into texto SEPARATED BY space.
+        WRITE: /1 texto.
+      WHEN 5.
+        WRITE: /1 'Ya estaba liberada la orden', I_ORDENES-ORDEN.
+      WHEN 6.
+        WRITE: /1 'Se ha repetido demasido pronto la liberación de la orden', I_ORDENES-ORDEN.
+      WHEN 7.
+        WRITE: /1 'Error en los métodos de liberación al transportar la orden', I_ORDENES-ORDEN.
+      WHEN 8.
+        WRITE: /1 'Error al chequear los objetos de la orden', I_ORDENES-ORDEN.
+      WHEN 9.
+        WRITE: /1 'Falta la documentación de la orden', I_ORDENES-ORDEN.
+      WHEN 10.
+        WRITE: /1 'Error de acceso a la BD al liberar la orden', I_ORDENES-ORDEN.
+      WHEN 11.
+        WRITE: /1 'Liberación abortada por el usuario para la orden', I_ORDENES-ORDEN.
+      WHEN 12.
+        WRITE: /1 'Fallo de EXPORT al liberar la orden', I_ORDENES-ORDEN.
+      WHEN 13.
+        WRITE: /1 'Se ha producido el error', sy-subrc, 'al liberar la orden', I_ORDENES-ORDEN.
+    ENDCASE.
+
+  endloop.
